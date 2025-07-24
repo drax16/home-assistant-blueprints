@@ -9,6 +9,11 @@ blueprint:
 
   domain: automation
   input:
+    knob_topic:
+      name: Knob MQTT Topic
+      description: MQTT topic of the Zigbee2MQTT knob (e.g. zigbee2mqtt/MyKnob/action)
+      selector:
+        text:
     light_target:
       name: Light to Control
       selector:
@@ -24,7 +29,7 @@ blueprint:
 
 trigger:
   - platform: mqtt
-    topic: zigbee2mqtt/0x4c13807798f2086/action
+    topic: !input knob_topic
 
 variables:
   action: "{{ trigger.payload }}"
@@ -77,6 +82,22 @@ action:
         sequence:
           - variables:
               step: "{{ 25 if action == 'brightness_step_down' else -25 }}"
-              current: "{{ state_attr((input | from_json)['light_target']['entity_id'], 'color_temp') | int }}"
-              min: "{{ state_attr((input | from_json)['light_target']['entity_id'], 'min_mireds') | int }}"
-              max: "{{ state_attr((input | from_json)[']()
+              light_entity: !input light_target
+              current: "{{ state_attr(light_entity.entity_id, 'color_temp') | int }}"
+              min: "{{ state_attr(light_entity.entity_id, 'min_mireds') | int }}"
+              max: "{{ state_attr(light_entity.entity_id, 'max_mireds') | int }}"
+              new_temp: "{{ [min, [max, current + step] | min] | max }}"
+          - service: light.turn_on
+            data:
+              color_temp: "{{ new_temp }}"
+            target: !input light_target
+
+  # Auto-reset to brightness mode after 15s
+  - delay:
+      seconds: 15
+  - condition: state
+    entity_id: !input ct_mode_toggle
+    state: "on"
+  - service: input_boolean.turn_off
+    target:
+      entity_id: !input ct_mode_toggle
