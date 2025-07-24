@@ -33,6 +33,7 @@ trigger:
 
 variables:
   action: "{{ trigger.payload }}"
+  light_entity: "{{ (input | from_json)['light_target']['entity_id'] if (input | from_json)['light_target']['entity_id'] is string else (input | from_json)['light_target']['entity_id'][0] }}"
 
 condition: []
 
@@ -72,7 +73,7 @@ action:
               transition: 0.3
             target: !input light_target
 
-      # Adjust color temp
+      # Adjust color temperature
       - conditions:
           - condition: state
             entity_id: !input ct_mode_toggle
@@ -82,10 +83,9 @@ action:
         sequence:
           - variables:
               step: "{{ 25 if action == 'brightness_step_down' else -25 }}"
-              light_entity: !input light_target
-              current: "{{ state_attr(light_entity.entity_id, 'color_temp') | int }}"
-              min: "{{ state_attr(light_entity.entity_id, 'min_mireds') | int }}"
-              max: "{{ state_attr(light_entity.entity_id, 'max_mireds') | int }}"
+              current: "{{ state_attr(light_entity, 'color_temp') | int }}"
+              min: "{{ state_attr(light_entity, 'min_mireds') | int }}"
+              max: "{{ state_attr(light_entity, 'max_mireds') | int }}"
               new_temp: "{{ [min, [max, current + step] | min] | max }}"
           - service: light.turn_on
             data:
