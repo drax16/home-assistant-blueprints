@@ -1,0 +1,102 @@
+blueprint:
+  name: Zigbee Knob - Brightness/CT Toggle (with Auto-Revert)
+  description: >
+    Use a Tuya Zigbee knob (e.g. TS004F / ERS-10TZBVK-AA) to control a light.
+    - Rotate to control brightness
+    - Hold button to toggle into color temperature mode
+    - Tap button to toggle the light on/off
+    - Auto-reverts to brightness mode after 15s
+
+  domain: automation
+  input:
+    knob_topic:
+      name: Knob MQTT Topic
+      description: MQTT topic of the Zigbee2MQTT knob (e.g. zigbee2mqtt/MyKnob/action)
+      selector:
+        text:
+    light_target:
+      name: Light to Control
+      selector:
+        target:
+          entity:
+            domain: light
+    ct_mode_toggle:
+      name: CT Mode Toggle Helper
+      description: input_boolean used to track CT mode state
+      selector:
+        entity:
+          domain: input_boolean
+
+trigger:
+  - platform: mqtt
+    topic: !input knob_topic
+
+variables:
+  action: "{{ trigger.payload }}"
+
+condition: []
+
+action:
+  - choose:
+      # Toggle light on/off
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'toggle' }}"
+        sequence:
+          - service: light.toggle
+            target: !input light_target
+
+      # Toggle CT mode
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'hue_move' }}"
+        sequence:
+          - service: input_boolean.toggle
+            target:
+              entity_id: !input ct_mode_toggle
+
+      # Adjust brightness
+      - conditions:
+          - condition: state
+            entity_id: !input ct_mode_toggle
+            state: "off"
+          - condition: template
+            value_template: "{{ action in ['brightness_step_up', 'brightness_step_down'] }}"
+        sequence:
+          - service: light.turn_on
+            data:
+              brightness_step_pct: >
+                {% if action == 'brightness_step_up' %} 10
+                {% else %} -10
+                {% endif %}
+              transition: 0.3
+            target: !input light_target
+
+      # Adjust color temp
+      - conditions:
+          - condition: state
+            entity_id: !input ct_mode_toggle
+            state: "on"
+          - condition: template
+            value_template: "{{ action in ['brightness_step_up', 'brightness_step_down'] }}"
+        sequence:
+          - variables:
+              step: "{{ 25 if action == 'brightness_step_down' else -25 }}"
+              current: "{{ state_attr((input | from_json)['light_target']['entity_id'], 'color_temp') | int }}"
+              min: "{{ state_attr((input | from_json)['light_target']['entity_id'], 'min_mireds') | int }}"
+              max: "{{ state_attr((input | from_json)['light_target']['entity_id'], 'max_mireds') | int }}"
+              new_temp: "{{ [min, [max, current + step] | min] | max }}"
+          - service: light.turn_on
+            data:
+              color_temp: "{{ new_temp }}"
+            target: !input light_target
+
+  # Auto-reset to brightness mode after 15s
+  - delay:
+      seconds: 15
+  - condition: state
+    entity_id: !input ct_mode_toggle
+    state: "on"
+  - service: input_boolean.turn_off
+    target:
+      entity_id: !input ct_mode_toggle
